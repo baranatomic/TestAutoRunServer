@@ -8,57 +8,95 @@ EMAIL = os.environ.get("KATABUMP_EMAIL")
 PASSWORD = os.environ.get("KATABUMP_PASSWORD")
 SERVER_ID = os.environ.get("SERVER_ID", "bdfe0e85")
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+PANEL_URL = os.environ.get("PANEL_URL")
+
+TELEGRAM_TOKEN = os.environ.get(
+    "TELEGRAM_BOT_TOKEN"
+)
+
+TELEGRAM_CHAT_IDS = os.environ.get(
+    "TELEGRAM_CHAT_IDS"
+)
+
 
 
 def send_telegram(message):
 
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_IDS:
         print("⚠️ Telegram تنظیم نشده")
         return
 
+
+    url = (
+        f"https://api.telegram.org/"
+        f"bot{TELEGRAM_TOKEN}/sendMessage"
+    )
+
+
+    for chat_id in TELEGRAM_CHAT_IDS.split(","):
+
+        chat_id = chat_id.strip()
+
+        if not chat_id:
+            continue
+
+
+        try:
+
+            response = requests.post(
+                url,
+                data={
+                    "chat_id": chat_id,
+                    "text": message
+                },
+                timeout=20
+            )
+
+
+            if response.ok:
+                print(
+                    f"📨 پیام ارسال شد به {chat_id}"
+                )
+            else:
+                print(
+                    response.text
+                )
+
+
+        except Exception as e:
+
+            print(
+                "Telegram error:",
+                e
+            )
+
+
+
+def debug_page(page):
+
     try:
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            data={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": message
-            },
-            timeout=20
-        )
 
-        print("📨 پیام تلگرام ارسال شد")
-
-    except Exception as e:
-        print("Telegram error:", e)
-
-
-
-def debug_page(page, name):
-
-    try:
         page.screenshot(
-            path=f"{name}.png",
+            path="error_debug.png",
             full_page=True
         )
 
+
         with open(
-            f"{name}.html",
+            "error_debug.html",
             "w",
             encoding="utf-8"
         ) as f:
-            f.write(page.content())
 
-        print(
-            f"📸 Debug saved: {name}.png / {name}.html"
-        )
+            f.write(
+                page.content()
+            )
 
-    except Exception as e:
-        print(
-            "Debug error:",
-            e
-        )
+
+    except:
+
+        pass
+
 
 
 
@@ -69,20 +107,10 @@ def main():
     )
 
 
-    if not EMAIL or not PASSWORD:
-
-        send_telegram(
-            "❌ Katabump Renew\n\n"
-            "Missing Login Secrets"
-        )
-
-        return
-
-
-
     print("========================================")
     print("🚀 شروع Katabump Renew")
     print("========================================")
+
 
 
     with sync_playwright() as p:
@@ -98,7 +126,6 @@ def main():
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 "
-                "(KHTML, like Gecko) "
                 "Chrome/122.0.0.0 Safari/537.36"
             ),
 
@@ -106,38 +133,27 @@ def main():
                 "width":1280,
                 "height":720
             }
-
         )
 
 
         page = context.new_page()
 
 
-        page.set_default_timeout(60000)
-
+        page.set_default_timeout(
+            60000
+        )
 
 
         try:
 
 
-            print("🔄 باز کردن Login")
+            print("🔄 Login")
 
 
             page.goto(
                 "https://control.katabump.com/auth/login",
                 wait_until="networkidle",
                 timeout=60000
-            )
-
-
-            print(
-                "URL:",
-                page.url
-            )
-
-
-            print(
-                "🔍 انتظار برای فیلد Login"
             )
 
 
@@ -155,26 +171,20 @@ def main():
             ).first
 
 
-            username.wait_for(
-                state="visible",
-                timeout=60000
-            )
 
+            username.wait_for(
+                state="visible"
+            )
 
             password.wait_for(
-                state="visible",
-                timeout=60000
-            )
-
-
-            print(
-                "✅ فیلدها پیدا شدند"
+                state="visible"
             )
 
 
             username.fill(
                 EMAIL
             )
+
 
             password.fill(
                 PASSWORD
@@ -186,9 +196,11 @@ def main():
             ).first.click()
 
 
+
             page.wait_for_timeout(
                 7000
             )
+
 
 
             if "/auth/login" in page.url:
@@ -216,9 +228,17 @@ def main():
             )
 
 
+
+            if f"/server/{SERVER_ID}" not in page.url:
+
+                raise Exception(
+                    "Server page failed"
+                )
+
+
+
             print(
-                "Server URL:",
-                page.url
+                "✅ صفحه سرور باز شد"
             )
 
 
@@ -257,29 +277,37 @@ def main():
             renew.click()
 
 
+
             page.wait_for_timeout(
                 15000
             )
 
 
-            send_telegram(
-                f"""
-✅ Katabump Renew موفق
+
+            message = f"""
+✅ Katabump Renew موفق شد
 
 🖥 Server:
 {SERVER_ID}
 
+🌐 Panel:
+{PANEL_URL}
+
 🕒 Time:
 {start_time}
 
-Status:
+🔄 Status:
 Restart triggered
 """
+
+
+            send_telegram(
+                message
             )
 
 
             print(
-                "🎉 موفق"
+                "🎉 عملیات موفق"
             )
 
 
@@ -287,25 +315,28 @@ Restart triggered
         except Exception as e:
 
 
-            debug_page(
-                page,
-                "error_debug"
-            )
+            debug_page(page)
+
+
+            message = f"""
+❌ Katabump Renew Failed
+
+🖥 Server:
+{SERVER_ID}
+
+🌐 Panel:
+{PANEL_URL}
+
+🕒 Time:
+{start_time}
+
+⚠️ Error:
+{e}
+"""
 
 
             send_telegram(
-                f"""
-❌ Katabump Renew Failed
-
-Server:
-{SERVER_ID}
-
-Time:
-{start_time}
-
-Error:
-{str(e)}
-"""
+                message
             )
 
 
@@ -320,4 +351,5 @@ Error:
 
 
 if __name__ == "__main__":
+
     main()
