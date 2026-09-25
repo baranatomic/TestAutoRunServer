@@ -1,4 +1,6 @@
 import os
+import requests
+from datetime import datetime
 from playwright.sync_api import sync_playwright
 
 
@@ -6,12 +8,67 @@ EMAIL = os.environ.get("KATABUMP_EMAIL")
 PASSWORD = os.environ.get("KATABUMP_PASSWORD")
 SERVER_ID = os.environ.get("SERVER_ID", "bdfe0e85")
 
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+
+
+def send_telegram(message):
+
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("⚠️ Telegram تنظیم نشده")
+        return
+
+    url = (
+        f"https://api.telegram.org/bot"
+        f"{TELEGRAM_TOKEN}/sendMessage"
+    )
+
+    data = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message
+    }
+
+    try:
+        r = requests.post(
+            url,
+            data=data,
+            timeout=20
+        )
+
+        if r.ok:
+            print("📨 پیام تلگرام ارسال شد")
+        else:
+            print(
+                "❌ خطای تلگرام:",
+                r.text
+            )
+
+    except Exception as e:
+        print(
+            "❌ Telegram Error:",
+            e
+        )
+
+
 
 def main():
 
+
+    start_time = datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+
     if not EMAIL or not PASSWORD:
-        print("❌ اطلاعات Login موجود نیست")
+
+        send_telegram(
+            "❌ Katabump Renew Failed\n\n"
+            "Login credentials missing"
+        )
+
         return
+
 
 
     print("========================================")
@@ -19,7 +76,9 @@ def main():
     print("========================================")
 
 
+
     with sync_playwright() as p:
+
 
         browser = p.chromium.launch(
             headless=True
@@ -27,11 +86,6 @@ def main():
 
 
         context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 "
-                "Chrome/122 Safari/537.36"
-            ),
             viewport={
                 "width":1280,
                 "height":720
@@ -42,10 +96,8 @@ def main():
         page = context.new_page()
 
 
+
         try:
-
-
-            print("🔄 Login...")
 
 
             page.goto(
@@ -58,21 +110,24 @@ def main():
             page.wait_for_timeout(3000)
 
 
+
             page.locator(
                 'input[name="username"],input[name="email"],input[type="email"],input[type="text"]'
-            ).first.fill(EMAIL)
+            ).first.fill(
+                EMAIL
+            )
 
 
             page.locator(
                 'input[name="password"],input[type="password"]'
-            ).first.fill(PASSWORD)
-
+            ).first.fill(
+                PASSWORD
+            )
 
 
             page.locator(
                 'button[type="submit"],input[type="submit"]'
             ).first.click()
-
 
 
             page.wait_for_timeout(5000)
@@ -81,21 +136,18 @@ def main():
 
             if "/auth/login" in page.url:
 
-                print("❌ Login شکست خورد")
-                return
+                raise Exception(
+                    "Login failed"
+                )
+
 
 
             print("✅ Login موفق")
 
 
+
             server_url = (
                 f"https://control.katabump.com/server/{SERVER_ID}"
-            )
-
-
-            print(
-                "🌐 رفتن به:",
-                server_url
             )
 
 
@@ -109,17 +161,14 @@ def main():
             page.wait_for_timeout(4000)
 
 
+
             if f"/server/{SERVER_ID}" not in page.url:
 
-                print("❌ صفحه سرور باز نشد")
-                return
+                raise Exception(
+                    "Server page failed"
+                )
 
 
-            print("✅ صفحه سرور باز شد")
-
-
-
-            # پیدا کردن دکمه Renew واقعی
 
             buttons = page.locator(
                 'button:has(svg path[d^="M4 4v5"])'
@@ -136,38 +185,22 @@ def main():
                 if btn.is_visible():
 
                     renew = btn
-                    print(
-                        f"✅ Renew پیدا شد - Button {i}"
-                    )
-
                     break
 
 
 
             if renew is None:
 
-                print(
-                    "❌ دکمه Renew پیدا نشد"
+                raise Exception(
+                    "Renew button not found"
                 )
 
-                return
 
 
-
-            print("🔄 در حال کلیک Renew...")
-
+            print("🔄 کلیک Renew")
 
             renew.click()
 
-
-            print(
-                "✅ کلیک انجام شد"
-            )
-
-
-            print(
-                "⏳ انتظار برای اعمال Restart..."
-            )
 
 
             page.wait_for_timeout(
@@ -175,22 +208,28 @@ def main():
             )
 
 
-            print(
-                "🌐 URL بعد از کلیک:",
-                page.url
+
+            message = f"""
+✅ Katabump Renew موفق
+
+🖥 Server:
+{SERVER_ID}
+
+🕒 Time:
+{start_time}
+
+🔄 Status:
+Restart triggered
+"""
+
+
+            send_telegram(
+                message
             )
 
 
             print(
-                "========================================"
-            )
-
-            print(
-                "🎉 عملیات Renew انجام شد"
-            )
-
-            print(
-                "========================================"
+                "🎉 عملیات موفق"
             )
 
 
@@ -198,25 +237,23 @@ def main():
         except Exception as e:
 
 
-            print(
-                "❌ خطا:",
-                e
+            message = f"""
+❌ Katabump Renew Failed
+
+🖥 Server:
+{SERVER_ID}
+
+🕒 Time:
+{start_time}
+
+⚠️ Error:
+{e}
+"""
+
+
+            send_telegram(
+                message
             )
-
-
-            try:
-
-                page.screenshot(
-                    path="error.png"
-                )
-
-                print(
-                    "📸 error.png ذخیره شد"
-                )
-
-            except:
-
-                pass
 
 
             raise
