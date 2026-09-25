@@ -206,7 +206,7 @@ def main():
                 """
 🌐 Panel:
 
-{PANEL}
+f"{PANEL}"
 """
             )
 
