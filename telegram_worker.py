@@ -7,10 +7,6 @@ BOT_TOKEN = os.environ.get(
     "TELEGRAM_BOT_TOKEN"
 )
 
-PANEL = os.environ.get(
-    "PANEL_URL"
-)
-
 CHAT_IDS = [
     x.strip()
     for x in os.environ.get(
@@ -206,7 +202,7 @@ def main():
                 """
 🌐 Panel:
 
-f"{PANEL}"
+http://51.75.118.5:20086/#/home
 """
             )
 
