@@ -4,7 +4,7 @@ from playwright.sync_api import sync_playwright
 
 EMAIL = os.environ.get("KATABUMP_EMAIL")
 PASSWORD = os.environ.get("KATABUMP_PASSWORD")
-SERVER_ID = os.environ.get("SERVER_ID")
+SERVER_ID = os.environ.get("SERVER_ID","bdfe0e85")
 
 def main():
     if not EMAIL or not PASSWORD:
