@@ -2,7 +2,7 @@ name: Katabump Auto Renew
 
 on:
   schedule:
-    # هر 3 روز ساعت 12:00 UTC
+    # اجرای خودکار هر 3 روز ساعت 12:00 UTC
     - cron: '0 12 */3 * *'
 
   # اجرای دستی برای تست
@@ -29,20 +29,31 @@ jobs:
           python-version: '3.11'
 
 
-      - name: نصب Playwright و Chromium
+      - name: نصب Playwright و وابستگی‌ها
         run: |
           python -m pip install --upgrade pip
           pip install playwright requests
           playwright install --with-deps chromium
 
 
-      - name: اجرای Renew
+      - name: اجرای Katabump Renew
         env:
           KATABUMP_EMAIL: ${{ secrets.KATABUMP_EMAIL }}
           KATABUMP_PASSWORD: ${{ secrets.KATABUMP_PASSWORD }}
           SERVER_ID: ${{ secrets.SERVER_ID }}
+
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
         run: |
           python renew.py
+
+
+      - name: ذخیره فایل‌های Debug در صورت خطا
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: katabump-debug
+          path: |
+            *.png
+            *.html
