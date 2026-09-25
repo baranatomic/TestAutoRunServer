@@ -48,18 +48,17 @@ jobs:
       - name: Run Katabump Renew
 
         env:
-
           KATABUMP_EMAIL: ${{ secrets.KATABUMP_EMAIL }}
-
           KATABUMP_PASSWORD: ${{ secrets.KATABUMP_PASSWORD }}
-
           SERVER_ID: ${{ secrets.SERVER_ID }}
+
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
 
           PANEL_URL: ${{ secrets.PANEL_URL }}
 
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-
-          TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+          WORKER_SECRET: ${{ secrets.WORKER_SECRET }}
 
 
         run: |
