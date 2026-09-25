@@ -12,48 +12,57 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 
-
 def send_telegram(message):
 
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("⚠️ Telegram تنظیم نشده")
         return
 
-    url = (
-        f"https://api.telegram.org/bot"
-        f"{TELEGRAM_TOKEN}/sendMessage"
-    )
-
-    data = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message
-    }
-
     try:
-        r = requests.post(
-            url,
-            data=data,
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            data={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": message
+            },
             timeout=20
         )
 
-        if r.ok:
-            print("📨 پیام تلگرام ارسال شد")
-        else:
-            print(
-                "❌ خطای تلگرام:",
-                r.text
-            )
+        print("📨 پیام تلگرام ارسال شد")
+
+    except Exception as e:
+        print("Telegram error:", e)
+
+
+
+def debug_page(page, name):
+
+    try:
+        page.screenshot(
+            path=f"{name}.png",
+            full_page=True
+        )
+
+        with open(
+            f"{name}.html",
+            "w",
+            encoding="utf-8"
+        ) as f:
+            f.write(page.content())
+
+        print(
+            f"📸 Debug saved: {name}.png / {name}.html"
+        )
 
     except Exception as e:
         print(
-            "❌ Telegram Error:",
+            "Debug error:",
             e
         )
 
 
 
 def main():
-
 
     start_time = datetime.now().strftime(
         "%Y-%m-%d %H:%M:%S"
@@ -63,8 +72,8 @@ def main():
     if not EMAIL or not PASSWORD:
 
         send_telegram(
-            "❌ Katabump Renew Failed\n\n"
-            "Login credentials missing"
+            "❌ Katabump Renew\n\n"
+            "Missing Login Secrets"
         )
 
         return
@@ -76,7 +85,6 @@ def main():
     print("========================================")
 
 
-
     with sync_playwright() as p:
 
 
@@ -86,41 +94,89 @@ def main():
 
 
         context = browser.new_context(
+
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+
             viewport={
                 "width":1280,
                 "height":720
             }
+
         )
 
 
         page = context.new_page()
 
 
+        page.set_default_timeout(60000)
+
+
 
         try:
 
 
+            print("🔄 باز کردن Login")
+
+
             page.goto(
                 "https://control.katabump.com/auth/login",
-                wait_until="domcontentloaded",
+                wait_until="networkidle",
                 timeout=60000
             )
 
 
-            page.wait_for_timeout(3000)
-
-
-
-            page.locator(
-                'input[name="username"],input[name="email"],input[type="email"],input[type="text"]'
-            ).first.fill(
-                EMAIL
+            print(
+                "URL:",
+                page.url
             )
 
 
-            page.locator(
-                'input[name="password"],input[type="password"]'
-            ).first.fill(
+            print(
+                "🔍 انتظار برای فیلد Login"
+            )
+
+
+            username = page.locator(
+                'input[name="username"],'
+                'input[name="email"],'
+                'input[type="email"],'
+                'input[type="text"]'
+            ).first
+
+
+            password = page.locator(
+                'input[name="password"],'
+                'input[type="password"]'
+            ).first
+
+
+            username.wait_for(
+                state="visible",
+                timeout=60000
+            )
+
+
+            password.wait_for(
+                state="visible",
+                timeout=60000
+            )
+
+
+            print(
+                "✅ فیلدها پیدا شدند"
+            )
+
+
+            username.fill(
+                EMAIL
+            )
+
+            password.fill(
                 PASSWORD
             )
 
@@ -130,8 +186,9 @@ def main():
             ).first.click()
 
 
-            page.wait_for_timeout(5000)
-
+            page.wait_for_timeout(
+                7000
+            )
 
 
             if "/auth/login" in page.url:
@@ -141,32 +198,28 @@ def main():
                 )
 
 
-
-            print("✅ Login موفق")
-
-
-
-            server_url = (
-                f"https://control.katabump.com/server/{SERVER_ID}"
+            print(
+                "✅ Login موفق"
             )
 
 
+
             page.goto(
-                server_url,
-                wait_until="domcontentloaded",
+                f"https://control.katabump.com/server/{SERVER_ID}",
+                wait_until="networkidle",
                 timeout=60000
             )
 
 
-            page.wait_for_timeout(4000)
+            page.wait_for_timeout(
+                4000
+            )
 
 
-
-            if f"/server/{SERVER_ID}" not in page.url:
-
-                raise Exception(
-                    "Server page failed"
-                )
+            print(
+                "Server URL:",
+                page.url
+            )
 
 
 
@@ -196,11 +249,12 @@ def main():
                 )
 
 
+            print(
+                "🔄 کلیک Renew"
+            )
 
-            print("🔄 کلیک Renew")
 
             renew.click()
-
 
 
             page.wait_for_timeout(
@@ -208,8 +262,8 @@ def main():
             )
 
 
-
-            message = f"""
+            send_telegram(
+                f"""
 ✅ Katabump Renew موفق
 
 🖥 Server:
@@ -218,18 +272,14 @@ def main():
 🕒 Time:
 {start_time}
 
-🔄 Status:
+Status:
 Restart triggered
 """
-
-
-            send_telegram(
-                message
             )
 
 
             print(
-                "🎉 عملیات موفق"
+                "🎉 موفق"
             )
 
 
@@ -237,22 +287,25 @@ Restart triggered
         except Exception as e:
 
 
-            message = f"""
-❌ Katabump Renew Failed
-
-🖥 Server:
-{SERVER_ID}
-
-🕒 Time:
-{start_time}
-
-⚠️ Error:
-{e}
-"""
+            debug_page(
+                page,
+                "error_debug"
+            )
 
 
             send_telegram(
-                message
+                f"""
+❌ Katabump Renew Failed
+
+Server:
+{SERVER_ID}
+
+Time:
+{start_time}
+
+Error:
+{str(e)}
+"""
             )
 
 
