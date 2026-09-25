@@ -1,6 +1,7 @@
 import os
 from playwright.sync_api import sync_playwright
 
+
 EMAIL = os.environ.get("KATABUMP_EMAIL")
 PASSWORD = os.environ.get("KATABUMP_PASSWORD")
 SERVER_ID = os.environ.get("SERVER_ID", "bdfe0e85")
@@ -9,35 +10,43 @@ SERVER_ID = os.environ.get("SERVER_ID", "bdfe0e85")
 def main():
 
     if not EMAIL or not PASSWORD:
-        print("❌ خطا: متغیرهای KATABUMP_EMAIL یا KATABUMP_PASSWORD تعریف نشده‌اند.")
+        print("❌ اطلاعات Login موجود نیست")
         return
 
+
     print("========================================")
-    print("🚀 شروع بررسی Katabump")
+    print("🚀 شروع Katabump Renew")
     print("========================================")
+
 
     with sync_playwright() as p:
 
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True
+        )
+
 
         context = browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
+                "AppleWebKit/537.36 "
+                "Chrome/122 Safari/537.36"
             ),
             viewport={
-                "width": 1280,
-                "height": 720
+                "width":1280,
+                "height":720
             }
         )
+
 
         page = context.new_page()
 
 
         try:
 
-            print("🔄 در حال باز کردن صفحه Login...")
+
+            print("🔄 Login...")
+
 
             page.goto(
                 "https://control.katabump.com/auth/login",
@@ -45,78 +54,38 @@ def main():
                 timeout=60000
             )
 
+
             page.wait_for_timeout(3000)
 
 
-            print(f"🌐 URL فعلی: {page.url}")
+            page.locator(
+                'input[name="username"],input[name="email"],input[type="email"],input[type="text"]'
+            ).first.fill(EMAIL)
 
 
-            print("🔍 در حال پیدا کردن فیلدهای Login...")
+            page.locator(
+                'input[name="password"],input[type="password"]'
+            ).first.fill(PASSWORD)
 
 
-            user_input = page.locator(
-                'input[name="username"], '
-                'input[name="email"], '
-                'input[type="text"], '
-                'input[type="email"]'
-            ).first
 
+            page.locator(
+                'button[type="submit"],input[type="submit"]'
+            ).first.click()
 
-            pass_input = page.locator(
-                'input[name="password"], '
-                'input[type="password"]'
-            ).first
-
-
-            user_input.wait_for(
-                state="visible",
-                timeout=15000
-            )
-
-            pass_input.wait_for(
-                state="visible",
-                timeout=15000
-            )
-
-
-            print("✅ فیلدهای Login پیدا شدند.")
-
-
-            print("🔑 وارد کردن اطلاعات Login...")
-
-
-            user_input.fill(EMAIL)
-            pass_input.fill(PASSWORD)
-
-
-            submit_btn = page.locator(
-                'button[type="submit"], '
-                'input[type="submit"]'
-            ).first
-
-
-            submit_btn.click()
 
 
             page.wait_for_timeout(5000)
 
 
-            print(f"🌐 URL بعد از Login: {page.url}")
-
 
             if "/auth/login" in page.url:
 
-                print("❌ Login ناموفق")
-
-                page.screenshot(
-                    path="login_failed.png"
-                )
-
+                print("❌ Login شکست خورد")
                 return
 
 
-            print("✅ Login با موفقیت انجام شد.")
-
+            print("✅ Login موفق")
 
 
             server_url = (
@@ -124,9 +93,9 @@ def main():
             )
 
 
-            print("")
             print(
-                f"🌐 ورود به صفحه سرور {SERVER_ID}"
+                "🌐 رفتن به:",
+                server_url
             )
 
 
@@ -140,89 +109,100 @@ def main():
             page.wait_for_timeout(4000)
 
 
-            print(
-                f"🌐 URL فعلی: {page.url}"
-            )
-
-
             if f"/server/{SERVER_ID}" not in page.url:
 
                 print("❌ صفحه سرور باز نشد")
-
-                page.screenshot(
-                    path="server_failed.png"
-                )
-
                 return
 
 
-            print("✅ صفحه سرور با موفقیت باز شد.")
+            print("✅ صفحه سرور باز شد")
 
 
-            print("")
-            print("🔍 بررسی دکمه‌های احتمالی Renew")
-            print("")
 
+            # پیدا کردن دکمه Renew واقعی
 
             buttons = page.locator(
                 'button:has(svg path[d^="M4 4v5"])'
             )
 
 
-            count = buttons.count()
+            renew = None
 
 
-            print(
-                f"🔎 تعداد دکمه‌ها: {count}"
-            )
-
-
-            for i in range(count):
-
-                print("")
-                print("----------------------------")
-                print(
-                    f"Button شماره {i}"
-                )
+            for i in range(buttons.count()):
 
                 btn = buttons.nth(i)
 
+                if btn.is_visible():
+
+                    renew = btn
+                    print(
+                        f"✅ Renew پیدا شد - Button {i}"
+                    )
+
+                    break
+
+
+
+            if renew is None:
 
                 print(
-                    "Visible:",
-                    btn.is_visible()
+                    "❌ دکمه Renew پیدا نشد"
                 )
 
-
-                try:
-
-                    html = btn.evaluate(
-                        "(el)=>el.outerHTML"
-                    )
-
-                    print(html)
+                return
 
 
-                except Exception as e:
 
-                    print(
-                        "خطا در خواندن HTML:",
-                        e
-                    )
+            print("🔄 در حال کلیک Renew...")
 
 
-            print("")
-            print("========================================")
-            print("✅ بررسی کامل شد")
-            print("⏸️ هیچ کلیکی انجام نشد")
-            print("========================================")
+            renew.click()
+
+
+            print(
+                "✅ کلیک انجام شد"
+            )
+
+
+            print(
+                "⏳ انتظار برای اعمال Restart..."
+            )
+
+
+            page.wait_for_timeout(
+                15000
+            )
+
+
+            print(
+                "🌐 URL بعد از کلیک:",
+                page.url
+            )
+
+
+            print(
+                "========================================"
+            )
+
+            print(
+                "🎉 عملیات Renew انجام شد"
+            )
+
+            print(
+                "========================================"
+            )
+
 
 
         except Exception as e:
 
-            print("")
-            print("❌ خطا:")
-            print(e)
+
+            print(
+                "❌ خطا:",
+                e
+            )
+
 
             try:
 
@@ -231,14 +211,16 @@ def main():
                 )
 
                 print(
-                    "📸 screenshot ذخیره شد"
+                    "📸 error.png ذخیره شد"
                 )
 
             except:
+
                 pass
 
 
             raise
+
 
 
         finally:
