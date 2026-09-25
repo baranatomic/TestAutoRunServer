@@ -42,9 +42,14 @@ def get_pending_message():
     try:
 
         r = requests.get(
-            WORKER_URL,
-            timeout=10
+    WORKER_URL,
+    headers={
+        "X-Worker-Secret": os.environ.get(
+            "WORKER_SECRET"
         )
+    },
+    timeout=10
+)
 
 
         if r.ok:
