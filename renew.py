@@ -18,57 +18,197 @@ TELEGRAM_CHAT_IDS = os.environ.get(
     "TELEGRAM_CHAT_IDS"
 )
 
+WORKER_URL = os.environ.get(
+    "WORKER_URL"
+)
+
+
+
+def telegram_api(method):
+
+    return (
+        f"https://api.telegram.org/"
+        f"bot{TELEGRAM_TOKEN}/{method}"
+    )
+
+
+
+def get_pending_message():
+
+    if not WORKER_URL:
+        return None
+
+
+    try:
+
+        r = requests.get(
+            WORKER_URL,
+            timeout=10
+        )
+
+
+        if r.ok:
+
+            data = r.json()
+
+            if data.get("chat_id"):
+
+                return data
+
+
+    except Exception as e:
+
+        print(
+            "KV read error:",
+            e
+        )
+
+
+    return None
+
+
+
+
+def edit_telegram(message):
+
+    state = get_pending_message()
+
+
+    if not state:
+
+        print(
+            "No pending message"
+        )
+
+        send_telegram(message)
+
+        return
+
+
+
+    try:
+
+
+        requests.post(
+
+            telegram_api(
+                "editMessageText"
+            ),
+
+            json={
+
+                "chat_id":
+                state["chat_id"],
+
+
+                "message_id":
+                state["message_id"],
+
+
+                "text":
+                message
+
+            },
+
+            timeout=20
+
+        )
+
+
+        print(
+            "✅ Telegram message edited"
+        )
+
+
+    except Exception as e:
+
+
+        print(
+            "Edit error:",
+            e
+        )
+
+        send_telegram(message)
+
+
+
 
 
 def send_telegram(message):
 
+
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_IDS:
-        print("⚠️ Telegram تنظیم نشده")
+
+        print(
+            "⚠️ Telegram تنظیم نشده"
+        )
+
         return
 
 
-    url = (
-        f"https://api.telegram.org/"
-        f"bot{TELEGRAM_TOKEN}/sendMessage"
+
+    url = telegram_api(
+        "sendMessage"
     )
 
 
     for chat_id in TELEGRAM_CHAT_IDS.split(","):
 
+
         chat_id = chat_id.strip()
+
 
         if not chat_id:
             continue
 
 
+
         try:
 
+
             response = requests.post(
+
                 url,
+
                 data={
-                    "chat_id": chat_id,
-                    "text": message
+
+                    "chat_id":
+                    chat_id,
+
+
+                    "text":
+                    message
+
                 },
+
                 timeout=20
+
             )
 
 
             if response.ok:
+
                 print(
                     f"📨 پیام ارسال شد به {chat_id}"
                 )
+
             else:
+
                 print(
                     response.text
                 )
 
 
+
         except Exception as e:
+
 
             print(
                 "Telegram error:",
                 e
             )
+
+
 
 
 
@@ -100,16 +240,26 @@ def debug_page(page):
 
 
 
+
 def main():
+
 
     start_time = datetime.now().strftime(
         "%Y-%m-%d %H:%M:%S"
     )
 
 
-    print("========================================")
-    print("🚀 شروع Katabump Renew")
-    print("========================================")
+    print(
+        "========================================"
+    )
+
+    print(
+        "🚀 شروع Katabump Renew"
+    )
+
+    print(
+        "========================================"
+    )
 
 
 
@@ -123,16 +273,14 @@ def main():
 
         context = browser.new_context(
 
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 "
-                "Chrome/122.0.0.0 Safari/537.36"
-            ),
+            user_agent=
+            "Mozilla/5.0 Chrome/122",
 
             viewport={
                 "width":1280,
                 "height":720
             }
+
         )
 
 
@@ -144,49 +292,31 @@ def main():
         )
 
 
+
         try:
 
 
-            print("🔄 Login")
+            print(
+                "🔄 Login"
+            )
 
 
             page.goto(
                 "https://control.katabump.com/auth/login",
-                wait_until="networkidle",
-                timeout=60000
+                wait_until="networkidle"
             )
 
 
-            username = page.locator(
-                'input[name="username"],'
-                'input[name="email"],'
-                'input[type="email"],'
-                'input[type="text"]'
-            ).first
-
-
-            password = page.locator(
-                'input[name="password"],'
-                'input[type="password"]'
-            ).first
-
-
-
-            username.wait_for(
-                state="visible"
-            )
-
-            password.wait_for(
-                state="visible"
-            )
-
-
-            username.fill(
+            page.locator(
+                'input[name="username"],input[name="email"],input[type="email"],input[type="text"]'
+            ).first.fill(
                 EMAIL
             )
 
 
-            password.fill(
+            page.locator(
+                'input[name="password"],input[type="password"]'
+            ).first.fill(
                 PASSWORD
             )
 
@@ -200,7 +330,6 @@ def main():
             page.wait_for_timeout(
                 7000
             )
-
 
 
             if "/auth/login" in page.url:
@@ -218,29 +347,13 @@ def main():
 
             page.goto(
                 f"https://control.katabump.com/server/{SERVER_ID}",
-                wait_until="networkidle",
-                timeout=60000
+                wait_until="networkidle"
             )
 
 
             page.wait_for_timeout(
                 4000
             )
-
-
-
-            if f"/server/{SERVER_ID}" not in page.url:
-
-                raise Exception(
-                    "Server page failed"
-                )
-
-
-
-            print(
-                "✅ صفحه سرور باز شد"
-            )
-
 
 
             buttons = page.locator(
@@ -253,16 +366,19 @@ def main():
 
             for i in range(buttons.count()):
 
+
                 btn = buttons.nth(i)
+
 
                 if btn.is_visible():
 
                     renew = btn
+
                     break
 
 
 
-            if renew is None:
+            if not renew:
 
                 raise Exception(
                     "Renew button not found"
@@ -275,7 +391,6 @@ def main():
 
 
             renew.click()
-
 
 
             page.wait_for_timeout(
@@ -301,9 +416,11 @@ Restart triggered
 """
 
 
-            send_telegram(
+
+            edit_telegram(
                 message
             )
+
 
 
             print(
@@ -316,6 +433,7 @@ Restart triggered
 
 
             debug_page(page)
+
 
 
             message = f"""
@@ -335,7 +453,7 @@ Restart triggered
 """
 
 
-            send_telegram(
+            edit_telegram(
                 message
             )
 
