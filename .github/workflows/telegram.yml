@@ -1,0 +1,72 @@
+name: Telegram Control Bot
+
+
+on:
+
+  schedule:
+
+    - cron: '* * * * *'
+
+
+  workflow_dispatch:
+
+
+
+jobs:
+
+  telegram:
+
+    runs-on: ubuntu-latest
+
+
+    timeout-minutes: 2
+
+
+    steps:
+
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+
+        with:
+
+          python-version: '3.11'
+
+
+
+      - name: Install
+
+        run: |
+
+          pip install requests
+
+
+
+      - name: Run Telegram Worker
+
+        env:
+
+          TELEGRAM_BOT_TOKEN:
+            ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
+          TELEGRAM_CHAT_IDS:
+            ${{ secrets.TELEGRAM_CHAT_IDS }}
+
+          GH_PAT:
+            ${{ secrets.GH_PAT }}
+
+          GITHUB_OWNER:
+            baranatomic
+
+          GITHUB_REPO:
+            TestAutoRunServer
+
+
+        run: |
+
+          python telegram_worker.py
