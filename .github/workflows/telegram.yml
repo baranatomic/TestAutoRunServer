@@ -51,6 +51,9 @@ jobs:
 
         env:
 
+          PANEL_URL:
+            ${{ secrets.PANEL_URL }}
+          
           TELEGRAM_BOT_TOKEN:
             ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
