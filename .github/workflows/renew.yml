@@ -29,20 +29,37 @@ jobs:
 
     timeout-minutes: 30
 
+
     steps:
 
+
+      # ======================================================
+      # Checkout
+      # ======================================================
+
       - name: Checkout
+
         uses: actions/checkout@v4
 
 
+      # ======================================================
+      # Python
+      # ======================================================
+
       - name: Setup Python
+
         uses: actions/setup-python@v5
 
         with:
           python-version: '3.11'
 
 
+      # ======================================================
+      # Dependencies
+      # ======================================================
+
       - name: Install dependencies
+
         run: |
 
           python -m pip install --upgrade pip
@@ -52,30 +69,34 @@ jobs:
           playwright install --with-deps chromium
 
 
+      # ======================================================
+      # Renew
+      # ======================================================
+
       - name: Run Katabump Renew
 
         env:
 
-          KATABUMP_SERVERS_JSON: ${{ secrets.KATABUMP_SERVERS_JSON }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+
+          WORKER_SECRET: ${{ secrets.WORKER_SECRET }}
 
           SERVER_KEY: ${{ github.event.inputs.server_key || 'all' }}
 
           RUN_ID: ${{ github.event.inputs.run_id || github.run_id }}
 
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-
-          TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
-
-          WORKER_URL: ${{ secrets.WORKER_URL }}
-
-          WORKER_SECRET: ${{ secrets.WORKER_SECRET }}
 
         run: |
 
           python renew.py
 
 
+      # ======================================================
+      # Debug files on failure
+      # ======================================================
+
       - name: Upload Debug
+
         if: failure()
 
         uses: actions/upload-artifact@v4
