@@ -6,13 +6,18 @@ on:
     - cron: '0 12 */3 * *'
 
   workflow_dispatch:
-
     inputs:
 
       server_key:
-        description: 'Server key'
+        description: 'Server key to renew, or all'
         required: false
-        default: 'main'
+        default: 'all'
+        type: string
+
+      run_id:
+        description: 'Internal run ID'
+        required: false
+        default: ''
         type: string
 
 
@@ -22,27 +27,22 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    timeout-minutes: 15
-
+    timeout-minutes: 30
 
     steps:
 
       - name: Checkout
-
         uses: actions/checkout@v4
 
 
       - name: Setup Python
-
         uses: actions/setup-python@v5
 
         with:
-
           python-version: '3.11'
 
 
       - name: Install dependencies
-
         run: |
 
           python -m pip install --upgrade pip
@@ -56,9 +56,11 @@ jobs:
 
         env:
 
-          SERVER_KEY: ${{ github.event.inputs.server_key || 'main' }}
-
           KATABUMP_SERVERS_JSON: ${{ secrets.KATABUMP_SERVERS_JSON }}
+
+          SERVER_KEY: ${{ github.event.inputs.server_key || 'all' }}
+
+          RUN_ID: ${{ github.event.inputs.run_id || github.run_id }}
 
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
@@ -68,24 +70,24 @@ jobs:
 
           WORKER_SECRET: ${{ secrets.WORKER_SECRET }}
 
-
         run: |
 
           python renew.py
 
 
       - name: Upload Debug
-
         if: failure()
 
         uses: actions/upload-artifact@v4
 
         with:
 
-          name: katabump-debug
+          name: katabump-debug-${{ github.run_id }}
 
           path: |
 
             *.png
 
             *.html
+
+          if-no-files-found: ignore
