@@ -1,14 +1,9 @@
 import os
+import json
 import requests
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 
-
-EMAIL = os.environ.get("KATABUMP_EMAIL")
-PASSWORD = os.environ.get("KATABUMP_PASSWORD")
-SERVER_ID = os.environ.get("SERVER_ID", "bdfe0e85")
-
-PANEL_URL = os.environ.get("PANEL_URL")
 
 TELEGRAM_TOKEN = os.environ.get(
     "TELEGRAM_BOT_TOKEN"
@@ -22,6 +17,17 @@ WORKER_URL = os.environ.get(
     "WORKER_URL"
 )
 
+WORKER_SECRET = os.environ.get(
+    "WORKER_SECRET"
+)
+
+SERVER_KEY = os.environ.get(
+    "SERVER_KEY"
+)
+
+SERVERS_JSON = os.environ.get(
+    "KATABUMP_SERVERS_JSON"
+)
 
 
 def telegram_api(method):
@@ -32,29 +38,100 @@ def telegram_api(method):
     )
 
 
+def load_servers():
+
+    if not SERVERS_JSON:
+
+        raise Exception(
+            "KATABUMP_SERVERS_JSON is not configured"
+        )
+
+    try:
+
+        data = json.loads(
+            SERVERS_JSON
+        )
+
+    except Exception as e:
+
+        raise Exception(
+            f"Invalid KATABUMP_SERVERS_JSON: {e}"
+        )
+
+    if not isinstance(data, dict):
+
+        raise Exception(
+            "KATABUMP_SERVERS_JSON must be a JSON object"
+        )
+
+    return data
+
+
+def get_server():
+
+    servers =
+    load_servers()
+
+    if not SERVER_KEY:
+
+        raise Exception(
+            "SERVER_KEY is not configured"
+        )
+
+    server =
+    servers.get(SERVER_KEY)
+
+    if not server:
+
+        raise Exception(
+            f"Unknown server_key: {SERVER_KEY}"
+        )
+
+    required = [
+        "name",
+        "server_id",
+        "panel_url",
+        "email",
+        "password"
+    ]
+
+    for field in required:
+
+        if not server.get(field):
+
+            raise Exception(
+                f"Missing '{field}' for server '{SERVER_KEY}'"
+            )
+
+    return server
+
 
 def get_pending_message():
 
     if not WORKER_URL:
-        return None
 
+        return None
 
     try:
 
         r = requests.get(
-    WORKER_URL,
-    headers={
-        "X-Worker-Secret": os.environ.get(
-            "WORKER_SECRET"
+
+            WORKER_URL,
+
+            headers={
+                "X-Worker-Secret":
+                    WORKER_SECRET
+            },
+
+            timeout=10
+
         )
-    },
-    timeout=10
-)
 
 
         if r.ok:
 
-            data = r.json()
+            data =
+            r.json()
 
             if data.get("chat_id"):
 
@@ -72,11 +149,10 @@ def get_pending_message():
     return None
 
 
-
-
 def edit_telegram(message):
 
-    state = get_pending_message()
+    state =
+    get_pending_message()
 
 
     if not state:
@@ -85,14 +161,14 @@ def edit_telegram(message):
             "No pending message"
         )
 
-        send_telegram(message)
+        send_telegram(
+            message
+        )
 
         return
 
 
-
     try:
-
 
         requests.post(
 
@@ -103,15 +179,13 @@ def edit_telegram(message):
             json={
 
                 "chat_id":
-                state["chat_id"],
-
+                    state["chat_id"],
 
                 "message_id":
-                state["message_id"],
-
+                    state["message_id"],
 
                 "text":
-                message
+                    message
 
             },
 
@@ -127,22 +201,23 @@ def edit_telegram(message):
 
     except Exception as e:
 
-
         print(
             "Edit error:",
             e
         )
 
-        send_telegram(message)
-
-
-
+        send_telegram(
+            message
+        )
 
 
 def send_telegram(message):
 
-
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_IDS:
+    if (
+        not TELEGRAM_TOKEN
+        or
+        not TELEGRAM_CHAT_IDS
+    ):
 
         print(
             "⚠️ Telegram تنظیم نشده"
@@ -151,38 +226,40 @@ def send_telegram(message):
         return
 
 
-
-    url = telegram_api(
+    url =
+    telegram_api(
         "sendMessage"
     )
 
 
-    for chat_id in TELEGRAM_CHAT_IDS.split(","):
+    for chat_id in (
+        TELEGRAM_CHAT_IDS
+        .split(",")
+    ):
 
-
-        chat_id = chat_id.strip()
+        chat_id =
+        chat_id.strip()
 
 
         if not chat_id:
-            continue
 
+            continue
 
 
         try:
 
-
-            response = requests.post(
+            response =
+            requests.post(
 
                 url,
 
                 data={
 
                     "chat_id":
-                    chat_id,
-
+                        chat_id,
 
                     "text":
-                    message
+                        message
 
                 },
 
@@ -204,9 +281,7 @@ def send_telegram(message):
                 )
 
 
-
         except Exception as e:
-
 
             print(
                 "Telegram error:",
@@ -214,7 +289,74 @@ def send_telegram(message):
             )
 
 
+def update_worker_success(
+    server,
+    start_time
+):
 
+    if not WORKER_URL:
+
+        print(
+            "⚠️ WORKER_URL تنظیم نشده"
+        )
+
+        return
+
+
+    try:
+
+        response =
+        requests.post(
+
+            WORKER_URL,
+
+            headers={
+                "X-Worker-Secret":
+                    WORKER_SECRET,
+
+                "Content-Type":
+                    "application/json"
+            },
+
+            json={
+
+                "action":
+                    "renew_success",
+
+                "server_key":
+                    SERVER_KEY,
+
+                "time":
+                    start_time
+
+            },
+
+            timeout=20
+
+        )
+
+
+        if response.ok:
+
+            print(
+                "✅ Worker state updated"
+            )
+
+        else:
+
+            print(
+                "⚠️ Worker state update failed:",
+                response.status_code,
+                response.text
+            )
+
+
+    except Exception as e:
+
+        print(
+            "Worker update error:",
+            e
+        )
 
 
 def debug_page(page):
@@ -243,15 +385,28 @@ def debug_page(page):
         pass
 
 
+def renew_server(
+    server
+):
+
+    email =
+    server["email"]
+
+    password =
+    server["password"]
+
+    server_id =
+    server["server_id"]
+
+    panel_url =
+    server["panel_url"]
+
+    server_name =
+    server["name"]
 
 
-
-def main():
-
-
-    start_time = datetime.now().strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
+    start_time =
+    datetime.now().astimezone().isoformat()
 
 
     print(
@@ -263,33 +418,47 @@ def main():
     )
 
     print(
+        f"🖥 Server: {server_name}"
+    )
+
+    print(
+        f"🆔 Server ID: {server_id}"
+    )
+
+    print(
         "========================================"
     )
 
 
-
     with sync_playwright() as p:
 
-
-        browser = p.chromium.launch(
+        browser =
+        p.chromium.launch(
             headless=True
         )
 
 
-        context = browser.new_context(
+        context =
+        browser.new_context(
 
-            user_agent=
-            "Mozilla/5.0 Chrome/122",
+            user_agent=(
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 "
+                "Chrome/122.0.0.0 "
+                "Safari/537.36"
+            ),
 
             viewport={
-                "width":1280,
-                "height":720
+                "width": 1280,
+                "height": 720
             }
 
         )
 
 
-        page = context.new_page()
+        page =
+        context.new_page()
 
 
         page.set_default_timeout(
@@ -297,9 +466,7 @@ def main():
         )
 
 
-
         try:
-
 
             print(
                 "🔄 Login"
@@ -307,29 +474,62 @@ def main():
 
 
             page.goto(
+
                 "https://control.katabump.com/auth/login",
-                wait_until="networkidle"
+
+                wait_until="networkidle",
+
+                timeout=60000
+
+            )
+
+
+            username =
+            page.locator(
+
+                'input[name="username"],'
+                'input[name="email"],'
+                'input[type="email"],'
+                'input[type="text"]'
+
+            ).first
+
+
+            password_input =
+            page.locator(
+
+                'input[name="password"],'
+                'input[type="password"]'
+
+            ).first
+
+
+            username.wait_for(
+                state="visible"
+            )
+
+
+            password_input.wait_for(
+                state="visible"
+            )
+
+
+            username.fill(
+                email
+            )
+
+
+            password_input.fill(
+                password
             )
 
 
             page.locator(
-                'input[name="username"],input[name="email"],input[type="email"],input[type="text"]'
-            ).first.fill(
-                EMAIL
-            )
 
+                'button[type="submit"],'
+                'input[type="submit"]'
 
-            page.locator(
-                'input[name="password"],input[type="password"]'
-            ).first.fill(
-                PASSWORD
-            )
-
-
-            page.locator(
-                'button[type="submit"],input[type="submit"]'
             ).first.click()
-
 
 
             page.wait_for_timeout(
@@ -349,10 +549,14 @@ def main():
             )
 
 
-
             page.goto(
-                f"https://control.katabump.com/server/{SERVER_ID}",
-                wait_until="networkidle"
+
+                f"https://control.katabump.com/server/{server_id}",
+
+                wait_until="networkidle",
+
+                timeout=60000
+
             )
 
 
@@ -361,7 +565,23 @@ def main():
             )
 
 
-            buttons = page.locator(
+            if (
+                f"/server/{server_id}"
+                not in page.url
+            ):
+
+                raise Exception(
+                    "Server page failed"
+                )
+
+
+            print(
+                "✅ صفحه سرور باز شد"
+            )
+
+
+            buttons =
+            page.locator(
                 'button:has(svg path[d^="M4 4v5"])'
             )
 
@@ -369,21 +589,23 @@ def main():
             renew = None
 
 
-            for i in range(buttons.count()):
+            for i in range(
+                buttons.count()
+            ):
 
-
-                btn = buttons.nth(i)
+                btn =
+                buttons.nth(i)
 
 
                 if btn.is_visible():
 
-                    renew = btn
+                    renew =
+                    btn
 
                     break
 
 
-
-            if not renew:
+            if renew is None:
 
                 raise Exception(
                     "Renew button not found"
@@ -403,15 +625,17 @@ def main():
             )
 
 
-
             message = f"""
 ✅ Katabump Renew موفق شد
 
 🖥 Server:
-{SERVER_ID}
+{server_name}
+
+🆔 Server ID:
+{server_id}
 
 🌐 Panel:
-{PANEL_URL}
+{panel_url}
 
 🕒 Time:
 {start_time}
@@ -421,11 +645,15 @@ Restart triggered
 """
 
 
-
             edit_telegram(
                 message
             )
 
+
+            update_worker_success(
+                server,
+                start_time
+            )
 
 
             print(
@@ -433,22 +661,24 @@ Restart triggered
             )
 
 
-
         except Exception as e:
 
-
-            debug_page(page)
-
+            debug_page(
+                page
+            )
 
 
             message = f"""
 ❌ Katabump Renew Failed
 
 🖥 Server:
-{SERVER_ID}
+{server_name}
+
+🆔 Server ID:
+{server_id}
 
 🌐 Panel:
-{PANEL_URL}
+{panel_url}
 
 🕒 Time:
 {start_time}
@@ -466,11 +696,19 @@ Restart triggered
             raise
 
 
-
         finally:
 
             browser.close()
 
+
+def main():
+
+    server =
+    get_server()
+
+    renew_server(
+        server
+    )
 
 
 if __name__ == "__main__":
