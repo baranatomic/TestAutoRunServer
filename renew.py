@@ -1,6 +1,9 @@
 import os
+import time
 import requests
+
 from datetime import datetime
+
 from playwright.sync_api import sync_playwright
 
 
@@ -26,6 +29,29 @@ RUN_ID = os.environ.get(
     ""
 )
 
+# ------------------------------------------------------------
+# فاصله بین سرورها
+# فقط برای اجرای Scheduled
+# مقدار بر حسب ثانیه
+# 30 دقیقه = 1800
+# ------------------------------------------------------------
+
+RENEW_DELAY_SECONDS = int(
+    os.environ.get(
+        "RENEW_DELAY_SECONDS",
+        "1800"
+    )
+)
+
+# ------------------------------------------------------------
+# مشخص می‌کند اجرا از Schedule آمده یا دستی
+# ------------------------------------------------------------
+
+EVENT_NAME = os.environ.get(
+    "GITHUB_EVENT_NAME",
+    ""
+)
+
 
 # ============================================================
 # WORKER API
@@ -44,31 +70,43 @@ def worker_get(
 ):
 
     if not WORKER_URL:
+
         raise Exception(
             "WORKER_URL تنظیم نشده است"
         )
+
 
     params = {
         "action": action
     }
 
+
     if server_key:
+
         params["server_key"] = server_key
 
+
     response = requests.get(
+
         WORKER_URL,
+
         params=params,
+
         headers=worker_headers(),
+
         timeout=30
     )
+
 
     if not response.ok:
 
         raise Exception(
+
             f"Worker API error "
             f"{response.status_code}: "
             f"{response.text}"
         )
+
 
     return response.json()
 
@@ -79,14 +117,17 @@ def get_server_keys():
         "server_keys"
     )
 
+
     if not data.get("ok"):
 
         raise Exception(
+
             data.get(
                 "error",
                 "Unknown Worker error"
             )
         )
+
 
     return data.get(
         "servers",
@@ -99,29 +140,37 @@ def get_server_config(
 ):
 
     data = worker_get(
+
         "server_config",
+
         server_key
     )
+
 
     if not data.get("ok"):
 
         raise Exception(
+
             data.get(
                 "error",
                 "Unknown Worker error"
             )
         )
 
+
     server = data.get(
         "server"
     )
 
+
     if not server:
 
         raise Exception(
+
             f"Server config not found: "
             f"{server_key}"
         )
+
 
     return server
 
@@ -140,7 +189,9 @@ def report_result(
 ):
 
     if not WORKER_URL:
+
         return
+
 
     payload = {
 
@@ -187,6 +238,7 @@ def report_result(
             else None
     }
 
+
     try:
 
         response = requests.post(
@@ -194,6 +246,7 @@ def report_result(
             WORKER_URL,
 
             headers={
+
                 "X-Worker-Secret":
                     WORKER_SECRET,
 
@@ -225,6 +278,7 @@ def report_result(
                 response.text
             )
 
+
     except Exception as e:
 
         print(
@@ -245,6 +299,7 @@ def debug_page(
     try:
 
         safe_key = (
+
             server_key
             .replace("/", "_")
             .replace("\\", "_")
@@ -274,6 +329,7 @@ def debug_page(
                 page.content()
             )
 
+
     except Exception as e:
 
         print(
@@ -292,6 +348,7 @@ def renew_server(
 ):
 
     start_time = (
+
         datetime.now()
         .strftime(
             "%Y-%m-%d %H:%M:%S"
@@ -339,21 +396,30 @@ def renew_server(
     )
 
     print(
+        f"🕒 Start: {start_time}"
+    )
+
+    print(
         "========================================"
     )
 
 
     if not email:
+
         raise Exception(
             "Email/Username تنظیم نشده است"
         )
 
+
     if not password:
+
         raise Exception(
             "Password تنظیم نشده است"
         )
 
+
     if not server_id:
+
         raise Exception(
             "Server ID تنظیم نشده است"
         )
@@ -362,6 +428,7 @@ def renew_server(
     with sync_playwright() as p:
 
         browser = None
+
 
         try:
 
@@ -421,23 +488,28 @@ def renew_server(
 
             username_input =
                 page.locator(
+
                     'input[name="username"],'
                     'input[name="email"],'
                     'input[type="email"],'
                     'input[type="text"]'
+
                 ).first
 
 
             password_input =
                 page.locator(
+
                     'input[name="password"],'
                     'input[type="password"]'
+
                 ).first
 
 
             username_input.fill(
                 email
             )
+
 
             password_input.fill(
                 password
@@ -446,8 +518,10 @@ def renew_server(
 
             submit =
                 page.locator(
+
                     'button[type="submit"],'
                     'input[type="submit"]'
+
                 ).first
 
 
@@ -475,9 +549,11 @@ def renew_server(
             # Server page
             # ------------------------------------------------
 
-            server_url =
-                "https://control.katabump.com/server/" \
+            server_url = (
+
+                "https://control.katabump.com/server/"
                 + server_id
+            )
 
 
             print(
@@ -504,7 +580,9 @@ def renew_server(
 
             buttons =
                 page.locator(
+
                     'button:has(svg path[d^="M4 4v5"])'
+
                 )
 
 
@@ -524,6 +602,7 @@ def renew_server(
 
                 button =
                     buttons.nth(i)
+
 
                 try:
 
@@ -614,6 +693,7 @@ def renew_server(
                 f"❌ Renew failed: "
                 f"{server_name}"
             )
+
 
             print(
                 str(e)
@@ -709,6 +789,7 @@ def select_servers():
     if SERVER_KEY not in available:
 
         raise Exception(
+
             f"Server key not found: "
             f"{SERVER_KEY}"
         )
@@ -746,6 +827,10 @@ def main():
         f"RUN_ID: {RUN_ID}"
     )
 
+    print(
+        f"GITHUB_EVENT_NAME: {EVENT_NAME}"
+    )
+
 
     if not WORKER_URL:
 
@@ -770,12 +855,59 @@ def main():
 
 
     print(
-        f"🖥 Servers: "
-        f"{', '.join(selected_keys)}"
+        "\n🖥 Servers:"
     )
 
 
+    for index, key in enumerate(
+        selected_keys,
+        start=1
+    ):
+
+        print(
+            f"{index}. {key}"
+        )
+
+
+    print(
+        f"\n📌 تعداد کل: "
+        f"{len(selected_keys)}"
+    )
+
+
+    # --------------------------------------------------------
+    # Scheduled or manual
+    # --------------------------------------------------------
+
+    scheduled_run = (
+        EVENT_NAME == "schedule"
+    )
+
+
+    if scheduled_run:
+
+        print(
+            "\n⏰ اجرای Schedule"
+        )
+
+        print(
+            "⏱ فاصله بین سرورها: "
+            f"{RENEW_DELAY_SECONDS // 60} دقیقه"
+        )
+
+    else:
+
+        print(
+            "\n⚡ اجرای دستی"
+        )
+
+        print(
+            "⏱ بدون فاصله اجباری"
+        )
+
+
     success_count = 0
+
     failed_count = 0
 
 
@@ -783,21 +915,36 @@ def main():
     # Sequential renew
     # --------------------------------------------------------
 
-    for server_key in selected_keys:
+    for index, server_key in enumerate(
+        selected_keys
+    ):
 
         print(
-            "\n----------------------------------------"
+            "\n"
         )
 
         print(
-            f"🖥 Processing: "
-            f"{server_key}"
+            "========================================"
         )
 
         print(
-            "----------------------------------------"
+            f"📍 Server "
+            f"{index + 1}/"
+            f"{len(selected_keys)}"
         )
 
+        print(
+            f"🔑 {server_key}"
+        )
+
+        print(
+            "========================================"
+        )
+
+
+        # ----------------------------------------------------
+        # Get config
+        # ----------------------------------------------------
 
         try:
 
@@ -806,6 +953,29 @@ def main():
                     server_key
                 )
 
+        except Exception as e:
+
+            failed_count += 1
+
+
+            print(
+                f"❌ دریافت تنظیمات "
+                f"{server_key} شکست خورد:"
+            )
+
+            print(
+                str(e)
+            )
+
+
+            continue
+
+
+        # ----------------------------------------------------
+        # Renew
+        # ----------------------------------------------------
+
+        try:
 
             result =
                 renew_server(
@@ -829,25 +999,17 @@ def main():
 
 
             print(
-                f"❌ Error loading/running "
-                f"{server_key}:"
+                f"❌ Error: "
+                f"{server_key}"
             )
+
 
             print(
                 str(e)
             )
 
 
-            # ------------------------------------------------
-            # Try reporting failure even if config loaded
-            # ------------------------------------------------
-
             try:
-
-                server =
-                    get_server_config(
-                        server_key
-                    )
 
                 report_result(
 
@@ -875,6 +1037,46 @@ def main():
                 pass
 
 
+        # ----------------------------------------------------
+        # Wait before next server
+        # ----------------------------------------------------
+
+        is_last =
+            index == (
+                len(selected_keys) - 1
+            )
+
+
+        if (
+            scheduled_run
+            and
+            not is_last
+        ):
+
+            minutes =
+                RENEW_DELAY_SECONDS // 60
+
+
+            print(
+                "\n"
+                "========================================"
+            )
+
+            print(
+                f"⏳ سرور بعدی "
+                f"{minutes} دقیقه دیگر"
+            )
+
+            print(
+                "========================================"
+            )
+
+
+            time.sleep(
+                RENEW_DELAY_SECONDS
+            )
+
+
     # --------------------------------------------------------
     # Final
     # --------------------------------------------------------
@@ -888,11 +1090,13 @@ def main():
     )
 
     print(
-        f"✅ Success: {success_count}"
+        f"✅ Success: "
+        f"{success_count}"
     )
 
     print(
-        f"❌ Failed: {failed_count}"
+        f"❌ Failed: "
+        f"{failed_count}"
     )
 
     print(
@@ -904,6 +1108,10 @@ def main():
 
         raise SystemExit(1)
 
+
+# ============================================================
+# START
+# ============================================================
 
 if __name__ == "__main__":
 
