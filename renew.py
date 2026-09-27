@@ -1,52 +1,31 @@
 import os
+import sys
 import time
-import requests
-
+import traceback
 from datetime import datetime
 
+import requests
 from playwright.sync_api import sync_playwright
 
 
 # ============================================================
-# ENV
+# Configuration
 # ============================================================
 
-WORKER_URL = os.environ.get(
-    "WORKER_URL"
-)
+WORKER_URL = os.environ.get("WORKER_URL", "").rstrip("/")
+WORKER_SECRET = os.environ.get("WORKER_SECRET", "")
 
-WORKER_SECRET = os.environ.get(
-    "WORKER_SECRET"
-)
+SERVER_KEY = os.environ.get("SERVER_KEY", "all")
+RUN_ID = os.environ.get("RUN_ID", "")
 
-SERVER_KEY = os.environ.get(
-    "SERVER_KEY",
-    "all"
-)
-
-RUN_ID = os.environ.get(
-    "RUN_ID",
-    ""
-)
-
-# ------------------------------------------------------------
-# فاصله بین سرورها
-# فقط برای اجرای Scheduled
-# مقدار بر حسب ثانیه
-# 30 دقیقه = 1800
-# ------------------------------------------------------------
-
+# 30 minutes
 RENEW_DELAY_SECONDS = int(
-    os.environ.get(
-        "RENEW_DELAY_SECONDS",
-        "1800"
-    )
+    os.environ.get("RENEW_DELAY_SECONDS", "1800")
 )
 
-# ------------------------------------------------------------
-# مشخص می‌کند اجرا از Schedule آمده یا دستی
-# ------------------------------------------------------------
-
+# GitHub event:
+# schedule
+# workflow_dispatch
 EVENT_NAME = os.environ.get(
     "GITHUB_EVENT_NAME",
     ""
@@ -54,1065 +33,920 @@ EVENT_NAME = os.environ.get(
 
 
 # ============================================================
-# WORKER API
+# Validation
 # ============================================================
 
-def worker_headers():
-
-    return {
-        "X-Worker-Secret": WORKER_SECRET
-    }
-
-
-def worker_get(
-    action,
-    server_key=None
-):
-
+def validate_environment():
     if not WORKER_URL:
+        raise RuntimeError(
+            "WORKER_URL is not configured"
+        )
 
-        raise Exception(
-            "WORKER_URL تنظیم نشده است"
+    if not WORKER_SECRET:
+        raise RuntimeError(
+            "WORKER_SECRET is not configured"
+        )
+
+    if not RUN_ID:
+        raise RuntimeError(
+            "RUN_ID is not configured"
         )
 
 
+# ============================================================
+# Worker API
+# ============================================================
+
+def worker_headers():
+    return {
+        "X-Worker-Secret": WORKER_SECRET,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "katabump-renew/2.0",
+    }
+
+
+def worker_get(action, server_key=None):
     params = {
         "action": action
     }
 
-
     if server_key:
-
         params["server_key"] = server_key
 
-
     response = requests.get(
-
         WORKER_URL,
-
         params=params,
-
         headers=worker_headers(),
-
         timeout=30
     )
 
-
     if not response.ok:
+        raise RuntimeError(
+            f"Worker GET failed: "
+            f"HTTP {response.status_code} "
+            f"{response.text[:1000]}"
+        )
 
-        raise Exception(
+    try:
+        return response.json()
 
-            f"Worker API error "
-            f"{response.status_code}: "
-            f"{response.text}"
+    except Exception:
+        raise RuntimeError(
+            "Worker returned invalid JSON: "
+            + response.text[:1000]
         )
 
 
-    return response.json()
+def worker_post(payload):
+    response = requests.post(
+        WORKER_URL,
+        headers=worker_headers(),
+        json=payload,
+        timeout=30
+    )
 
+    if not response.ok:
+        raise RuntimeError(
+            f"Worker POST failed: "
+            f"HTTP {response.status_code} "
+            f"{response.text[:1000]}"
+        )
+
+    try:
+        return response.json()
+
+    except Exception:
+        return {
+            "ok": True,
+            "text": response.text
+        }
+
+
+# ============================================================
+# Get server list
+# ============================================================
 
 def get_server_keys():
-
     data = worker_get(
         "server_keys"
     )
 
+    # Supported formats:
+    #
+    # {
+    #   "keys": ["main", "server2"]
+    # }
+    #
+    # or
+    #
+    # {
+    #   "servers": [...]
+    # }
 
-    if not data.get("ok"):
+    if isinstance(data, list):
+        return data
 
-        raise Exception(
+    if isinstance(data.get("keys"), list):
+        result = []
 
-            data.get(
-                "error",
-                "Unknown Worker error"
-            )
-        )
+        for item in data["keys"]:
 
+            if isinstance(item, str):
+                result.append(item)
 
-    return data.get(
-        "servers",
-        []
+            elif isinstance(item, dict):
+
+                key = (
+                    item.get("key")
+                    or item.get("server_key")
+                )
+
+                if key:
+                    result.append(key)
+
+        return result
+
+    if isinstance(data.get("servers"), list):
+        result = []
+
+        for item in data["servers"]:
+
+            if isinstance(item, str):
+                result.append(item)
+
+            elif isinstance(item, dict):
+
+                key = (
+                    item.get("key")
+                    or item.get("server_key")
+                )
+
+                if key:
+                    result.append(key)
+
+        return result
+
+    raise RuntimeError(
+        "Worker server_keys response has no "
+        "keys/servers list"
     )
-
-
-def get_server_config(
-    server_key
-):
-
-    data = worker_get(
-
-        "server_config",
-
-        server_key
-    )
-
-
-    if not data.get("ok"):
-
-        raise Exception(
-
-            data.get(
-                "error",
-                "Unknown Worker error"
-            )
-        )
-
-
-    server = data.get(
-        "server"
-    )
-
-
-    if not server:
-
-        raise Exception(
-
-            f"Server config not found: "
-            f"{server_key}"
-        )
-
-
-    return server
 
 
 # ============================================================
-# REPORT RESULT TO WORKER
+# Get server configuration
+# ============================================================
+
+def get_server_config(server_key):
+    data = worker_get(
+        "server_config",
+        server_key
+    )
+
+    # Supported:
+    #
+    # {
+    #   "name": "...",
+    #   "server_id": "...",
+    #   "panel_url": "...",
+    #   "email": "...",
+    #   "password": "..."
+    # }
+    #
+    # or:
+    #
+    # {
+    #   "server": {...}
+    # }
+
+    if isinstance(data.get("server"), dict):
+        config = data["server"]
+
+    else:
+        config = data
+
+    required = [
+        "server_id",
+        "email",
+        "password"
+    ]
+
+    missing = [
+        key
+        for key in required
+        if not config.get(key)
+    ]
+
+    if missing:
+        raise RuntimeError(
+            f"Server '{server_key}' missing "
+            f"configuration: {', '.join(missing)}"
+        )
+
+    return config
+
+
+# ============================================================
+# Report result to Worker
 # ============================================================
 
 def report_result(
     server_key,
-    server,
+    config,
     success,
     status,
-    error=None,
-    run_id=None
+    error=None
 ):
-
-    if not WORKER_URL:
-
-        return
-
-
     payload = {
+        "action": "renew_result",
 
-        "action":
-            "renew_result",
+        "run_id": RUN_ID,
 
-        "run_id":
-            run_id or RUN_ID,
+        "server_key": server_key,
 
-        "server_key":
-            server_key,
+        "server_id": config.get(
+            "server_id",
+            ""
+        ),
 
-        "server_id":
-            server.get(
-                "server_id",
-                ""
-            ),
+        "server_name": config.get(
+            "name",
+            server_key
+        ),
 
-        "server_name":
-            server.get(
-                "name",
-                server_key
-            ),
+        "panel_url": config.get(
+            "panel_url",
+            ""
+        ),
 
-        "panel_url":
-            server.get(
-                "panel_url",
-                ""
-            ),
+        "success": bool(success),
 
-        "success":
-            bool(success),
+        "status": status,
 
-        "status":
-            status,
+        "time": datetime.now().isoformat(
+            timespec="seconds"
+        ),
 
-        "time":
-            datetime.utcnow().isoformat()
-            + "Z",
-
-        "error":
-            str(error)
-            if error
-            else None
+        "error": error
     }
-
 
     try:
 
-        response = requests.post(
-
-            WORKER_URL,
-
-            headers={
-
-                "X-Worker-Secret":
-                    WORKER_SECRET,
-
-                "Content-Type":
-                    "application/json"
-            },
-
-            json=payload,
-
-            timeout=30
+        result = worker_post(
+            payload
         )
 
-
-        if response.ok:
-
-            print(
-                f"✅ Worker result reported: "
-                f"{server_key}"
-            )
-
-        else:
-
-            print(
-                f"⚠️ Worker result failed: "
-                f"{response.status_code}"
-            )
-
-            print(
-                response.text
-            )
-
+        print(
+            f"📡 Worker result: "
+            f"{result}"
+        )
 
     except Exception as e:
 
         print(
-            "⚠️ Worker report error:",
-            e
+            f"⚠️ Could not report result "
+            f"to Worker: {e}"
         )
 
 
 # ============================================================
-# DEBUG
+# Debug
 # ============================================================
 
-def debug_page(
-    page,
-    server_key
-):
+def save_debug(page, server_key):
+
+    safe_key = (
+        server_key
+        .replace("/", "_")
+        .replace("\\", "_")
+        .replace(" ", "_")
+    )
+
+    png_file = (
+        f"error_{safe_key}.png"
+    )
+
+    html_file = (
+        f"error_{safe_key}.html"
+    )
 
     try:
 
-        safe_key = (
-
-            server_key
-            .replace("/", "_")
-            .replace("\\", "_")
-        )
-
-
         page.screenshot(
-
-            path=
-                f"error_{safe_key}.png",
-
+            path=png_file,
             full_page=True
         )
 
-
-        with open(
-
-            f"error_{safe_key}.html",
-
-            "w",
-
-            encoding="utf-8"
-
-        ) as f:
-
-            f.write(
-                page.content()
-            )
-
+        print(
+            f"📸 Screenshot saved: "
+            f"{png_file}"
+        )
 
     except Exception as e:
 
         print(
-            "Debug error:",
-            e
+            f"⚠️ Screenshot error: {e}"
+        )
+
+    try:
+
+        with open(
+            html_file,
+            "w",
+            encoding="utf-8"
+        ) as file:
+
+            file.write(
+                page.content()
+            )
+
+        print(
+            f"📄 HTML saved: "
+            f"{html_file}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"⚠️ HTML debug error: {e}"
         )
 
 
 # ============================================================
-# RENEW ONE SERVER
+# Katabump Renew
 # ============================================================
 
 def renew_server(
     server_key,
-    server
+    config
 ):
-
-    start_time = (
-
-        datetime.now()
-        .strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
-    )
-
-
-    email = server.get(
-        "email"
-    )
-
-    password = server.get(
-        "password"
-    )
-
-    server_id = server.get(
-        "server_id"
-    )
-
-    panel_url = server.get(
-        "panel_url"
-    )
-
-    server_name = server.get(
+    server_name = config.get(
         "name",
         server_key
     )
 
-
-    print(
-        "\n========================================"
+    server_id = config.get(
+        "server_id"
     )
 
+    email = config.get(
+        "email"
+    )
+
+    password = config.get(
+        "password"
+    )
+
+    panel_url = config.get(
+        "panel_url",
+        ""
+    )
+
+    start_time = datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    print("")
+    print("=" * 60)
     print(
-        f"🚀 شروع Renew: "
+        f"🚀 Starting server: "
         f"{server_name}"
     )
-
     print(
-        f"🔑 Key: {server_key}"
+        f"🔑 Server key: {server_key}"
     )
-
     print(
-        f"🆔 Server ID: {server_id}"
+        f"🖥 Server ID: {server_id}"
     )
+    print("=" * 60)
 
-    print(
-        f"🕒 Start: {start_time}"
-    )
+    browser = None
 
-    print(
-        "========================================"
-    )
+    try:
 
+        with sync_playwright() as p:
 
-    if not email:
+            print(
+                "🌐 Launching Chromium..."
+            )
 
-        raise Exception(
-            "Email/Username تنظیم نشده است"
-        )
+            browser = p.chromium.launch(
+                headless=True
+            )
 
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 "
+                    "(Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) "
+                    "Chrome/122.0.0.0 "
+                    "Safari/537.36"
+                ),
 
-    if not password:
+                viewport={
+                    "width": 1280,
+                    "height": 720
+                }
+            )
 
-        raise Exception(
-            "Password تنظیم نشده است"
-        )
-
-
-    if not server_id:
-
-        raise Exception(
-            "Server ID تنظیم نشده است"
-        )
-
-
-    with sync_playwright() as p:
-
-        browser = None
-
-
-        try:
-
-            # ------------------------------------------------
-            # Browser
-            # ------------------------------------------------
-
-            browser =
-                p.chromium.launch(
-                    headless=True
-                )
-
-
-            context =
-                browser.new_context(
-
-                    user_agent=
-                        "Mozilla/5.0 "
-                        "(Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) "
-                        "Chrome/122.0.0.0 "
-                        "Safari/537.36",
-
-                    viewport={
-                        "width": 1280,
-                        "height": 720
-                    }
-                )
-
-
-            page =
-                context.new_page()
-
+            page = context.new_page()
 
             page.set_default_timeout(
                 60000
             )
-
 
             # ------------------------------------------------
             # Login
             # ------------------------------------------------
 
             print(
-                "🔄 Login..."
+                "🔐 Login to Katabump..."
             )
 
-
             page.goto(
-
                 "https://control.katabump.com/auth/login",
-
                 wait_until="networkidle"
             )
 
+            username_input = page.locator(
+                'input[name="username"],'
+                'input[name="email"],'
+                'input[type="email"],'
+                'input[type="text"]'
+            ).first
 
-            username_input =
-                page.locator(
-
-                    'input[name="username"],'
-                    'input[name="email"],'
-                    'input[type="email"],'
-                    'input[type="text"]'
-
-                ).first
-
-
-            password_input =
-                page.locator(
-
-                    'input[name="password"],'
-                    'input[type="password"]'
-
-                ).first
-
+            password_input = page.locator(
+                'input[name="password"],'
+                'input[type="password"]'
+            ).first
 
             username_input.fill(
                 email
             )
 
-
             password_input.fill(
                 password
             )
 
+            submit_button = page.locator(
+                'button[type="submit"],'
+                'input[type="submit"]'
+            ).first
 
-            submit =
-                page.locator(
-
-                    'button[type="submit"],'
-                    'input[type="submit"]'
-
-                ).first
-
-
-            submit.click()
-
+            submit_button.click()
 
             page.wait_for_timeout(
                 7000
             )
 
-
             if "/auth/login" in page.url:
 
-                raise Exception(
-                    "Login failed"
+                raise RuntimeError(
+                    "Katabump login failed"
                 )
 
-
             print(
-                "✅ Login موفق"
+                "✅ Login successful"
             )
-
 
             # ------------------------------------------------
             # Server page
             # ------------------------------------------------
 
             server_url = (
-
                 "https://control.katabump.com/server/"
-                + server_id
+                f"{server_id}"
             )
-
 
             print(
-                f"🌐 Opening: {server_url}"
+                f"🌐 Opening server page: "
+                f"{server_url}"
             )
-
 
             page.goto(
-
                 server_url,
-
                 wait_until="networkidle"
             )
-
 
             page.wait_for_timeout(
                 4000
             )
 
-
             # ------------------------------------------------
-            # Find Renew
+            # Find Renew button
             # ------------------------------------------------
 
-            buttons =
-                page.locator(
+            print(
+                "🔎 Searching for Renew button..."
+            )
 
-                    'button:has(svg path[d^="M4 4v5"])'
+            buttons = page.locator(
+                'button:has(svg path[d^="M4 4v5"])'
+            )
 
-                )
+            button_count = buttons.count()
 
+            print(
+                f"🔎 Found {button_count} "
+                f"possible Renew buttons"
+            )
 
             renew_button = None
 
+            for index in range(
+                button_count
+            ):
 
-            count =
-                buttons.count()
-
-
-            print(
-                f"🔎 Renew candidates: {count}"
-            )
-
-
-            for i in range(count):
-
-                button =
-                    buttons.nth(i)
-
+                button = buttons.nth(
+                    index
+                )
 
                 try:
 
                     if button.is_visible():
 
-                        renew_button =
-                            button
+                        renew_button = button
 
                         print(
-                            f"✅ Renew button "
-                            f"found: {i}"
+                            f"✅ Renew button found "
+                            f"at index {index}"
                         )
 
                         break
 
                 except Exception:
-
                     continue
 
+            if renew_button is None:
 
-            if not renew_button:
-
-                raise Exception(
+                raise RuntimeError(
                     "Renew button not found"
                 )
 
-
             # ------------------------------------------------
-            # Click
+            # Click Renew
             # ------------------------------------------------
 
             print(
-                "🔄 کلیک Renew..."
+                "🔄 Clicking Renew..."
             )
-
 
             renew_button.click()
 
+            print(
+                "⏳ Waiting for restart..."
+            )
 
             page.wait_for_timeout(
                 15000
             )
 
+            # ------------------------------------------------
+            # Success
+            # ------------------------------------------------
 
             print(
-                "🎉 Restart triggered"
+                "✅ Restart triggered"
             )
-
-
-            # ------------------------------------------------
-            # Report success
-            # ------------------------------------------------
 
             report_result(
-
-                server_key=
-                    server_key,
-
-                server=
-                    server,
-
-                success=
-                    True,
-
-                status=
-                    "Restart triggered",
-
-                error=
-                    None,
-
-                run_id=
-                    RUN_ID
+                server_key=server_key,
+                config=config,
+                success=True,
+                status="Restart triggered",
+                error=None
             )
 
-
+            print("")
             print(
-                f"✅ Renew موفق: "
+                f"🎉 SUCCESS: "
                 f"{server_name}"
             )
-
+            print(
+                f"🕒 Time: {start_time}"
+            )
+            print(
+                f"🌐 Panel: {panel_url}"
+            )
 
             return True
 
+    except Exception as e:
 
-        except Exception as e:
+        error_text = (
+            f"{type(e).__name__}: {e}"
+        )
 
-            print(
-                f"❌ Renew failed: "
-                f"{server_name}"
-            )
+        print("")
+        print(
+            f"❌ FAILED: {server_name}"
+        )
 
+        print(
+            f"⚠️ Error: {error_text}"
+        )
 
-            print(
-                str(e)
-            )
+        traceback.print_exc()
 
+        try:
 
-            try:
+            if "page" in locals():
 
-                debug_page(
+                save_debug(
                     page,
                     server_key
                 )
 
-            except Exception:
+        except Exception:
+            pass
 
+        report_result(
+            server_key=server_key,
+            config=config,
+            success=False,
+            status="Renew failed",
+            error=error_text
+        )
+
+        return False
+
+    finally:
+
+        if browser:
+
+            try:
+
+                browser.close()
+
+            except Exception:
                 pass
 
 
-            # ------------------------------------------------
-            # Report failure
-            # ------------------------------------------------
-
-            report_result(
-
-                server_key=
-                    server_key,
-
-                server=
-                    server,
-
-                success=
-                    False,
-
-                status=
-                    "Renew failed",
-
-                error=
-                    str(e),
-
-                run_id=
-                    RUN_ID
-            )
-
-
-            return False
-
-
-        finally:
-
-            if browser:
-
-                try:
-
-                    browser.close()
-
-                except Exception:
-
-                    pass
-
-
 # ============================================================
-# SELECT SERVERS
-# ============================================================
-
-def select_servers():
-
-    servers =
-        get_server_keys()
-
-
-    if not servers:
-
-        raise Exception(
-            "هیچ سروری در Worker ثبت نشده است"
-        )
-
-
-    if SERVER_KEY == "all":
-
-        return [
-            item["key"]
-            for item in servers
-        ]
-
-
-    available = {
-
-        item["key"]
-        for item in servers
-    }
-
-
-    if SERVER_KEY not in available:
-
-        raise Exception(
-
-            f"Server key not found: "
-            f"{SERVER_KEY}"
-        )
-
-
-    return [
-        SERVER_KEY
-    ]
-
-
-# ============================================================
-# MAIN
+# Main
 # ============================================================
 
 def main():
 
+    print("")
+    print("=" * 60)
     print(
-        "\n========================================"
+        "🤖 Katabump Auto Renew v2"
+    )
+    print("=" * 60)
+
+    print(
+        f"Worker URL: {WORKER_URL}"
     )
 
     print(
-        "🚀 Katabump Multi-Server Renew"
+        f"Server key: {SERVER_KEY}"
     )
 
     print(
-        "========================================"
-    )
-
-
-    print(
-        f"SERVER_KEY: {SERVER_KEY}"
+        f"Run ID: {RUN_ID}"
     )
 
     print(
-        f"RUN_ID: {RUN_ID}"
+        f"Event: {EVENT_NAME}"
     )
 
     print(
-        f"GITHUB_EVENT_NAME: {EVENT_NAME}"
+        f"Delay: {RENEW_DELAY_SECONDS} seconds"
     )
 
+    print("=" * 60)
 
-    if not WORKER_URL:
-
-        raise Exception(
-            "WORKER_URL تنظیم نشده است"
-        )
-
-
-    if not WORKER_SECRET:
-
-        raise Exception(
-            "WORKER_SECRET تنظیم نشده است"
-        )
-
+    validate_environment()
 
     # --------------------------------------------------------
     # Determine servers
     # --------------------------------------------------------
 
-    selected_keys =
-        select_servers()
+    if SERVER_KEY.lower() != "all":
 
-
-    print(
-        "\n🖥 Servers:"
-    )
-
-
-    for index, key in enumerate(
-        selected_keys,
-        start=1
-    ):
-
-        print(
-            f"{index}. {key}"
-        )
-
-
-    print(
-        f"\n📌 تعداد کل: "
-        f"{len(selected_keys)}"
-    )
-
-
-    # --------------------------------------------------------
-    # Scheduled or manual
-    # --------------------------------------------------------
-
-    scheduled_run = (
-        EVENT_NAME == "schedule"
-    )
-
-
-    if scheduled_run:
-
-        print(
-            "\n⏰ اجرای Schedule"
-        )
-
-        print(
-            "⏱ فاصله بین سرورها: "
-            f"{RENEW_DELAY_SECONDS // 60} دقیقه"
-        )
+        server_keys = [
+            SERVER_KEY
+        ]
 
     else:
 
         print(
-            "\n⚡ اجرای دستی"
+            "📋 Getting server list "
+            "from Worker..."
+        )
+
+        server_keys = get_server_keys()
+
+    if not server_keys:
+
+        raise RuntimeError(
+            "No servers found"
+        )
+
+    print("")
+    print(
+        f"📋 Servers to process: "
+        f"{len(server_keys)}"
+    )
+
+    for key in server_keys:
+
+        print(
+            f"   • {key}"
+        )
+
+    # --------------------------------------------------------
+    # Schedule mode
+    # --------------------------------------------------------
+
+    is_schedule = (
+        EVENT_NAME == "schedule"
+    )
+
+    if is_schedule:
+
+        print("")
+        print(
+            "⏰ Schedule mode enabled"
         )
 
         print(
-            "⏱ بدون فاصله اجباری"
+            "⏱ Servers will run "
+            "sequentially with "
+            f"{RENEW_DELAY_SECONDS // 60} "
+            "minute delay."
         )
 
+    else:
 
-    success_count = 0
+        print("")
+        print(
+            "🖱 Manual mode enabled"
+        )
 
-    failed_count = 0
-
+        print(
+            "⏱ No delay between servers."
+        )
 
     # --------------------------------------------------------
-    # Sequential renew
+    # Process servers
     # --------------------------------------------------------
+
+    successful = 0
+    failed = 0
+
+    results = []
 
     for index, server_key in enumerate(
-        selected_keys
+        server_keys
     ):
 
+        print("")
         print(
-            "\n"
+            "#" * 60
         )
 
         print(
-            "========================================"
+            f"SERVER {index + 1}/"
+            f"{len(server_keys)}"
         )
 
         print(
-            f"📍 Server "
-            f"{index + 1}/"
-            f"{len(selected_keys)}"
+            f"KEY: {server_key}"
         )
 
         print(
-            f"🔑 {server_key}"
+            "#" * 60
         )
-
-        print(
-            "========================================"
-        )
-
-
-        # ----------------------------------------------------
-        # Get config
-        # ----------------------------------------------------
 
         try:
 
-            server =
-                get_server_config(
-                    server_key
-                )
+            config = get_server_config(
+                server_key
+            )
 
         except Exception as e:
 
-            failed_count += 1
-
-
-            print(
-                f"❌ دریافت تنظیمات "
-                f"{server_key} شکست خورد:"
+            error_text = (
+                f"{type(e).__name__}: {e}"
             )
 
             print(
-                str(e)
+                f"❌ Cannot get config "
+                f"for {server_key}: "
+                f"{error_text}"
             )
 
+            failed += 1
+
+            results.append({
+                "server_key": server_key,
+                "success": False,
+                "error": error_text
+            })
 
             continue
 
+        success = renew_server(
+            server_key,
+            config
+        )
+
+        if success:
+
+            successful += 1
+
+            results.append({
+                "server_key": server_key,
+                "success": True
+            })
+
+        else:
+
+            failed += 1
+
+            results.append({
+                "server_key": server_key,
+                "success": False
+            })
 
         # ----------------------------------------------------
-        # Renew
+        # 30-minute delay between scheduled servers
         # ----------------------------------------------------
-
-        try:
-
-            result =
-                renew_server(
-                    server_key,
-                    server
-                )
-
-
-            if result:
-
-                success_count += 1
-
-            else:
-
-                failed_count += 1
-
-
-        except Exception as e:
-
-            failed_count += 1
-
-
-            print(
-                f"❌ Error: "
-                f"{server_key}"
-            )
-
-
-            print(
-                str(e)
-            )
-
-
-            try:
-
-                report_result(
-
-                    server_key=
-                        server_key,
-
-                    server=
-                        server,
-
-                    success=
-                        False,
-
-                    status=
-                        "Renew failed",
-
-                    error=
-                        str(e),
-
-                    run_id=
-                        RUN_ID
-                )
-
-            except Exception:
-
-                pass
-
-
-        # ----------------------------------------------------
-        # Wait before next server
-        # ----------------------------------------------------
-
-        is_last =
-            index == (
-                len(selected_keys) - 1
-            )
-
 
         if (
-            scheduled_run
-            and
-            not is_last
+            is_schedule
+            and index < len(server_keys) - 1
         ):
 
-            minutes =
-                RENEW_DELAY_SECONDS // 60
-
-
+            print("")
+            print("=" * 60)
             print(
-                "\n"
-                "========================================"
+                "⏸ Waiting 30 minutes "
+                "before next server..."
             )
-
-            print(
-                f"⏳ سرور بعدی "
-                f"{minutes} دقیقه دیگر"
-            )
-
-            print(
-                "========================================"
-            )
-
+            print("=" * 60)
 
             time.sleep(
                 RENEW_DELAY_SECONDS
             )
 
-
     # --------------------------------------------------------
-    # Final
+    # Final summary
     # --------------------------------------------------------
 
+    print("")
+    print("=" * 60)
     print(
-        "\n========================================"
+        "🏁 Katabump Renew Finished"
+    )
+    print("=" * 60)
+
+    print(
+        f"📊 Total: {len(server_keys)}"
     )
 
     print(
-        "🏁 Renew تمام شد"
+        f"✅ Successful: {successful}"
     )
 
     print(
-        f"✅ Success: "
-        f"{success_count}"
+        f"❌ Failed: {failed}"
     )
 
-    print(
-        f"❌ Failed: "
-        f"{failed_count}"
-    )
+    print("")
+    print("Results:")
 
-    print(
-        "========================================"
-    )
+    for result in results:
 
+        if result["success"]:
 
-    if failed_count > 0:
+            print(
+                f"  ✅ "
+                f"{result['server_key']}"
+            )
 
-        raise SystemExit(1)
+        else:
+
+            print(
+                f"  ❌ "
+                f"{result['server_key']}"
+            )
+
+    print("=" * 60)
+
+    if failed > 0:
+
+        sys.exit(1)
+
+    sys.exit(0)
 
 
 # ============================================================
-# START
+# Entry point
 # ============================================================
 
 if __name__ == "__main__":
-
     main()
