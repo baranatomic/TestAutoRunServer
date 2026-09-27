@@ -6,18 +6,28 @@ on:
     - cron: '0 12 */3 * *'
 
   workflow_dispatch:
+
     inputs:
 
       server_key:
+
         description: 'Server key to renew, or all'
+
         required: false
+
         default: 'all'
+
         type: string
 
+
       run_id:
+
         description: 'Internal run ID'
+
         required: false
+
         default: ''
+
         type: string
 
 
@@ -27,7 +37,7 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    timeout-minutes: 30
+    timeout-minutes: 120
 
 
     steps:
@@ -51,6 +61,7 @@ jobs:
         uses: actions/setup-python@v5
 
         with:
+
           python-version: '3.11'
 
 
@@ -70,7 +81,7 @@ jobs:
 
 
       # ======================================================
-      # Renew
+      # Katabump Renew
       # ======================================================
 
       - name: Run Katabump Renew
@@ -85,6 +96,10 @@ jobs:
 
           RUN_ID: ${{ github.event.inputs.run_id || github.run_id }}
 
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+
+          RENEW_DELAY_SECONDS: 1800
+
 
         run: |
 
@@ -92,7 +107,7 @@ jobs:
 
 
       # ======================================================
-      # Debug files on failure
+      # Debug
       # ======================================================
 
       - name: Upload Debug
