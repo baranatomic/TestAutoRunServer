@@ -2,32 +2,28 @@ name: Katabump Auto Renew
 
 on:
 
+  # ----------------------------------------------------------
+  # Automatic schedule
+  # ----------------------------------------------------------
   schedule:
     - cron: '0 12 */3 * *'
 
+  # ----------------------------------------------------------
+  # Manual execution
+  # ----------------------------------------------------------
   workflow_dispatch:
-
     inputs:
 
       server_key:
-
         description: 'Server key to renew, or all'
-
         required: false
-
         default: 'all'
-
         type: string
 
-
       run_id:
-
         description: 'Internal run ID'
-
         required: false
-
         default: ''
-
         type: string
 
 
@@ -37,18 +33,17 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    timeout-minutes: 120
-
+    # Because scheduled renew can contain multiple servers
+    # with 30-minute gaps.
+    timeout-minutes: 180
 
     steps:
-
 
       # ======================================================
       # Checkout
       # ======================================================
 
-      - name: Checkout
-
+      - name: Checkout repository
         uses: actions/checkout@v4
 
 
@@ -57,11 +52,8 @@ jobs:
       # ======================================================
 
       - name: Setup Python
-
         uses: actions/setup-python@v5
-
         with:
-
           python-version: '3.11'
 
 
@@ -70,50 +62,73 @@ jobs:
       # ======================================================
 
       - name: Install dependencies
-
         run: |
-
           python -m pip install --upgrade pip
-
           pip install playwright requests
-
           playwright install --with-deps chromium
 
 
       # ======================================================
-      # Katabump Renew
+      # Renew
       # ======================================================
 
       - name: Run Katabump Renew
-
         env:
+
+          # --------------------------------------------------
+          # Worker
+          # --------------------------------------------------
 
           WORKER_URL: ${{ secrets.WORKER_URL }}
 
           WORKER_SECRET: ${{ secrets.WORKER_SECRET }}
 
+
+          # --------------------------------------------------
+          # Server selection
+          #
+          # Manual:
+          # selected server_key
+          #
+          # Schedule:
+          # all
+          # --------------------------------------------------
+
           SERVER_KEY: ${{ github.event.inputs.server_key || 'all' }}
+
+
+          # --------------------------------------------------
+          # Run ID
+          # --------------------------------------------------
 
           RUN_ID: ${{ github.event.inputs.run_id || github.run_id }}
 
+
+          # --------------------------------------------------
+          # GitHub event
+          # --------------------------------------------------
+
           GITHUB_EVENT_NAME: ${{ github.event_name }}
+
+
+          # --------------------------------------------------
+          # Delay between scheduled servers
+          #
+          # 1800 seconds = 30 minutes
+          # --------------------------------------------------
 
           RENEW_DELAY_SECONDS: 1800
 
-
         run: |
-
           python renew.py
 
 
       # ======================================================
-      # Debug
+      # Debug artifacts
       # ======================================================
 
-      - name: Upload Debug
-
+      - name: Upload Debug Files
         if: failure()
-
         uses: actions/upload-artifact@v4
 
         with:
@@ -121,9 +136,7 @@ jobs:
           name: katabump-debug-${{ github.run_id }}
 
           path: |
-
             *.png
-
             *.html
 
           if-no-files-found: ignore
